@@ -17,9 +17,13 @@ const Login = () => {
     email: "",
     password: "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
+
+    setSubmitting(true);
     try {
       const { data } = await api.post(`/api/users/${state}`, formData);
 
@@ -28,7 +32,9 @@ const Login = () => {
 
       toast.success(data.message);
     } catch (error) {
-      toast(error?.response?.data?.message || error.message);
+      toast.error(error?.response?.data?.message || error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -94,9 +100,14 @@ const Login = () => {
         </div>
         <button
           type="submit"
-          className="mt-2 w-full h-11 rounded-full text-white bg-green-500 hover:opacity-90 transition-opacity"
+          disabled={submitting}
+          className="mt-2 w-full h-11 rounded-full text-white bg-green-500 hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {state === "login" ? "Login" : "Sign up"}
+          {submitting
+            ? "Please wait..."
+            : state === "login"
+            ? "Login"
+            : "Sign up"}
         </button>
         <p
           onClick={() =>
