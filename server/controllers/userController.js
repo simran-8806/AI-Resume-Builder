@@ -3,6 +3,34 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import Resume from "../models/Resume.js";
 
+// Map thrown errors to a sensible HTTP status instead of always answering 400
+const handleError = (res, error) => {
+  console.error(error);
+
+  if (error?.code === 11000) {
+    return res.status(400).json({ message: "User already exists" });
+  }
+
+  if (error?.name === "ValidationError") {
+    return res.status(400).json({ message: error.message });
+  }
+
+  if (
+    error?.name === "MongooseError" ||
+    error?.name === "MongoServerSelectionError" ||
+    error?.name === "MongoNetworkError"
+  ) {
+    return res.status(503).json({
+      message: "Database connection failed. Please try again in a moment.",
+    });
+  }
+
+  return res.status(500).json({ message: "Something went wrong" });
+};
+
+const normalizeEmail = (email) =>
+  typeof email === "string" ? email.trim().toLowerCase() : "";
+
 const generateToken = (userId) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: "7d",
@@ -15,11 +43,18 @@ const generateToken = (userId) => {
 // POST: /api/users/register
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, password } = req.body;
+    const email = normalizeEmail(req.body.email);
 
-    // check it required fields are present
-    if (!name || !email || !password) {
+    // check if required fields are present
+    if (!name?.trim() || !email || !password) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
     }
 
     // check if user already exists
@@ -32,7 +67,7 @@ export const registerUser = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = await User.create({
-      name,
+      name: name.trim(),
       email,
       password: hashedPassword,
     });
@@ -45,7 +80,7 @@ export const registerUser = async (req, res) => {
       .status(201)
       .json({ message: "User created successfully", token, user: newUser });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return handleError(res, error);
   }
 };
 
@@ -53,16 +88,22 @@ export const registerUser = async (req, res) => {
 // POST: /api/users/login
 export const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = normalizeEmail(req.body.email);
 
-    // check if user already exists
+    if (!email || !password) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // check if user exists
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
     // check if password is correct
-    if (!user.comparePassword(password)) {
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
 
@@ -72,7 +113,7 @@ export const loginUser = async (req, res) => {
 
     return res.status(200).json({ message: "Login successful", token, user });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return handleError(res, error);
   }
 };
 
@@ -89,11 +130,11 @@ export const getUserById = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // return user
+    // return user (client reads `data.user`)
     user.password = undefined; // hide password
-    return res.status(200).json(user);
+    return res.status(200).json({ user });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return handleError(res, error);
   }
 };
 
@@ -108,6 +149,6 @@ export const getUserResumes = async (req, res) => {
 
     return res.status(200).json({ resumes });
   } catch (error) {
-    return res.status(400).json({ message: error.message });
+    return handleError(res, error);
   }
 };
